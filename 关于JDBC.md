@@ -571,3 +571,282 @@ con.close();
 * MapListHandler-->把多行结果转换为List<Map\>
 
 * ScalarHandler(单行单列)-->通常用于聚集函数查询语句，结果集是单行单列，返回Object
+
+# JdbcUtils V3.0和TxQueryRunner
+
+* **需要c3p0的2个jar包，以及dbutils，mysql-connector-java**
+
+* **支持多线程的事务管理**
+
+* JdbcUtils.java
+
+  ```java
+  package com.dxx.jdbc;
+  
+  import com.mchange.v2.c3p0.ComboPooledDataSource;
+  
+  import javax.sql.DataSource;
+  import java.sql.Connection;
+  import java.sql.SQLException;
+  
+  /**
+   * 需要提供c3p0的2个jar包和mysql-connect-java
+   * 还需要提供c3p0-config.xml
+   * V3.0
+   */
+  public class JdbcUtils {
+      //使用默认配置，要求必须给出配置文件
+      private static ComboPooledDataSource dataSource = new ComboPooledDataSource();
+      /**
+       * 事务专用连接
+       */
+      private static ThreadLocal<Connection> tlConnection = new ThreadLocal<>();
+  
+      /**
+       * 使用连接池返回连接对象
+       * Connection@return
+       * getConnection@throws SQLException
+       */
+      public static Connection getConnection() throws SQLException {
+          Connection connection = tlConnection.get();
+          if(connection!=null) return connection;
+          return dataSource.getConnection();
+      }
+  
+      /**
+       * 返回连接池对象
+       * DataSource@return
+       */
+      public static DataSource getDataSouce(){
+          return dataSource;
+      }
+  
+      /**
+       * 开启事务
+       * 获取一个Connection设置他的setAutoCommit(false)
+       * 还要保证DAO中使用的连接是同一个
+       * -------------------------------------------
+       * 1.创建一个Connection，设置为手动提交
+       * 2.把这个Connection给dao用
+       * 3.还要让commitTransaction和rollbackTransaction可以获取到
+       */
+      public static void beginTransaction() throws SQLException {
+          Connection connection = tlConnection.get();
+          if(connection!=null) throw new SQLException("已经开启事务，请勿重复开启");
+          /*
+           * 给con赋值，设置为手动提交
+           */
+          connection = getConnection();
+          connection.setAutoCommit(false);
+          tlConnection.set(connection);
+      }
+  
+      /**
+       * 提交事务
+       * 获取beginTransaction提供的Connection然后调用commit()方法
+       * 提交后为连接null，表示事务结束，下次使用的就是连接池返回的普通连接
+       */
+      public static void commitTransaction() throws SQLException {
+          Connection connection = tlConnection.get();
+          if(connection == null) throw new SQLException("事务未开启，不能提交");
+          connection.commit();
+          connection.close();
+          tlConnection.remove();
+  
+      }
+  
+      /**
+       * 回滚事务
+       * 获取beginTransaction提供的Connection然后调用rollback()方法
+       */
+      public static void rollbackTransaction() throws SQLException {
+          Connection connection = tlConnection.get();
+          if(connection == null) throw new SQLException("事务未开启，不能回滚");
+          connection.rollback();
+          connection.close();
+          tlConnection.remove();
+      }
+  
+      /**
+       * 释放连接
+       * 判断是否事务专用，是就不关闭，否则关闭
+       */
+      public static void releaseConnection(Connection con) throws SQLException {
+          Connection connection = tlConnection.get();
+          //如果connection==null，说明con一定不是事务专用
+          if(connection == null) con.close();
+          //如果Connection!=nul，则判断参数con是否等于connection
+          if(con != connection) con.close();
+      }
+  
+  }
+  
+  ```
+
+* TxQueryRunner.java
+
+  ```java
+  package com.dxx.jdbc;
+  
+  import org.apache.commons.dbutils.QueryRunner;
+  import org.apache.commons.dbutils.ResultSetHandler;
+  
+  import java.sql.Connection;
+  import java.sql.SQLException;
+  import java.util.List;
+  
+  /**
+   * 需要dbUtils
+   * 这个类的方法，直接来处理连接的问题
+   * 1.通过JdbcUtils获得连接，可能是事务连接也可能是普通连接
+   * 2.通过 JdbcUtils.releaseConnection(con)完成对连接的释放，如果是普通连接就关闭
+   */
+  public class TxQueryRuner extends QueryRunner {
+      @Override
+      public int[] batch(String sql, Object[][] params) throws SQLException {
+  
+          Connection con = JdbcUtils.getConnection();
+          int[] result = super.batch(con,sql,params);
+          JdbcUtils.releaseConnection(con);
+          return result;
+      }
+  
+      @Override
+      public <T> T query(String sql, ResultSetHandler<T> rsh, Object... params) throws SQLException {
+          Connection con = JdbcUtils.getConnection();
+          T result = super.query(con,sql,rsh,params);
+          JdbcUtils.releaseConnection(con);
+          return result;
+      }
+  
+      @Override
+      public <T> T query(String sql, ResultSetHandler<T> rsh) throws SQLException {
+          Connection con = JdbcUtils.getConnection();
+          T result = super.query(con,sql,rsh);
+          JdbcUtils.releaseConnection(con);
+          return result;
+      }
+  
+      @Override
+      public int update(String sql) throws SQLException {
+          Connection con = JdbcUtils.getConnection();
+          int result = super.update(con,sql);
+          JdbcUtils.releaseConnection(con);
+          return result;
+      }
+  
+      @Override
+      public int update(String sql, Object param) throws SQLException {
+          Connection con = JdbcUtils.getConnection();
+          int result = super.update(con,sql,param);
+          JdbcUtils.releaseConnection(con);
+          return result;
+      }
+  
+      @Override
+      public int update(String sql, Object... params) throws SQLException {
+          Connection con = JdbcUtils.getConnection();
+          int result = super.update(con,sql,params);
+          JdbcUtils.releaseConnection(con);
+          return result;
+      }
+  
+      @Override
+      public <T> T insert(String sql, ResultSetHandler<T> rsh) throws SQLException {
+          Connection con = JdbcUtils.getConnection();
+          T result = super.insert(con,sql,rsh);
+          JdbcUtils.releaseConnection(con);
+          return result;
+      }
+  
+      @Override
+      public <T> T insert(String sql, ResultSetHandler<T> rsh, Object... params) throws SQLException {
+          Connection con = JdbcUtils.getConnection();
+          T result = super.insert(con,sql,rsh,params);
+          JdbcUtils.releaseConnection(con);
+          return result;
+      }
+  
+      @Override
+      public <T> T insertBatch(String sql, ResultSetHandler<T> rsh, Object[][] params) throws SQLException {
+          Connection con = JdbcUtils.getConnection();
+          T result = super.insert(con,sql,rsh,params);
+          JdbcUtils.releaseConnection(con);
+          return result;
+      }
+  
+      @Override
+      public int execute(String sql, Object... params) throws SQLException {
+          Connection con = JdbcUtils.getConnection();
+          int result = super.execute(con,sql,params);
+          JdbcUtils.releaseConnection(con);
+          return result;
+      }
+  
+      @Override
+      public <T> List<T> execute(String sql, ResultSetHandler<T> rsh, Object... params) throws SQLException {
+          Connection con = JdbcUtils.getConnection();
+          List<T> result = super.execute(con,sql,rsh,params);
+          JdbcUtils.releaseConnection(con);
+          return result;
+      }
+  
+  
+  }
+  
+  ```
+
+## 使用示例
+
+* UserDao.java数据层
+
+  ```java
+  package com.dxx.jdbc;
+  
+  import org.apache.commons.dbutils.QueryRunner;
+  
+  import java.sql.SQLException;
+  
+  public class UserDao {
+  
+      public static void update(int id,int age) throws SQLException {
+          QueryRunner qr = new TxQueryRuner();
+          String sql = "update users set age=age+? where id=?";
+          Object[] params = {age,id};
+          qr.update(sql,params);
+  
+      }
+  }
+  
+  ```
+
+  不需要进行连接管理
+
+* Demo1.java 业务层
+
+  ```
+  package com.dxx.jdbc;
+  
+  import org.junit.jupiter.api.Test;
+  
+  import java.sql.SQLException;
+  
+  public class Demo1 {
+      private UserDao userDao = new UserDao();
+  
+      @Test
+      public void ServMathod() throws SQLException {
+          try {
+              JdbcUtils.beginTransaction();
+              userDao.update(1,-5);
+  //            if(true) throw new RuntimeException();
+              userDao.update(2,5);
+              JdbcUtils.commitTransaction();
+          } catch (Exception e) {
+              JdbcUtils.rollbackTransaction();
+          }
+      }
+  }
+  ```
+
+  **可以支持多线程的事务管理**
