@@ -9,7 +9,22 @@
 * 服务器会为每个客户端创建一个session对象，session对象好比客户在服务器段的账户，它们被服务器保存到一个**Map**中（这个Map称为session缓存）
 > **Servlet中得到session对象：HttpSession session = request.getSession();**
 > **Jsp中得到session对象：session是jsp内置对象之一，可直接使用**
+## Session的序列化
+
+* 服务器关闭时，Catalina/localhost/项目目录下会生成SESSIONS.ser文件，这是session可以“死而复生”的关键，在用户浏览器不关闭的情况下，关闭服务器时会生成，重启时通过这个文件使session“复活”
+
+* 通过在conf/context.xml文件中添加配置可以使其失效
+
+  ```xml
+  <Context>
+      <Manager pathname=""/>
+  </Context>
+  ```
+
+  
+
 ## SessionID
+
 * request.getSession()方法
 > * 获取Cookie中的sessionId:
 >>*如果sessionId不存在，创建sessionId，服务器保存session，浏览器把新创建的sessionId保存到Cookie

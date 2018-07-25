@@ -77,6 +77,8 @@ dpkg -l |grep ^rc|awk '{print $2}' |sudo xargs dpkg -P
 * shutter
 * Teamviewer
 * shadowsocks
+* lolcat
+* cmatrix
 
 # 设置开机启动桌面应用程序
 
